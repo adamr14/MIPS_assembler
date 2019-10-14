@@ -5,14 +5,14 @@
 #
 # The goal of this project is to implement a MIPS instruction set assembler. Both I and R type instructions
 # will be accounted for. The input will come from a file called *.s, and the output will be in a file
-# called *.asm
+# called *.obj
 #
 #
 #
 
 
 #
-# Assember class object to hold relevant structures
+# Assember class object to hold relevant structures and methods
 #
 class assembler():
     #
@@ -23,14 +23,17 @@ class assembler():
         if len(filename.split('.s')) < 2:
             raise Exception("Invalid Filename: Filename must end in '.s'")
         else:
-            self.outputFilename = filename.split('.s')[0] + '.asm'
+            self.outputFilename = filename.split('.s')[0] + '.obj'
             self.instructions = self.__build_instruction_dict()
             self.registers = self.__build_register_dict()
-            self.labels = {}
-            self.content = []
-            self.output = []
-            self.num_labels = 0
+            self.labels = {} # label map
+            self.content = [] #list of all the lines in input file
+            self.output = [] #list of all lines in output file
+            self.num_labels = 0 #number of labels
 
+    #
+    # Reads and pre-processes all instructions for whitespace
+    #
     def read_file(self):
         with open(self.inputFilename, 'r') as assembly_file:
             self.content = assembly_file.readlines()
@@ -39,25 +42,39 @@ class assembler():
         assembly_file.close()
         return
 
+    #
+    # Parses all instructions by type (see __i_type and __j_type)
+    #
     def parse(self):
         self.__map_labels()
         line_num = 1
         for line in self.content:
             instruction = line.split(' ')[0]
-            type = self.instructions[instruction]['format']
-            if type == 'I':
+            if instruction  in self.instructions.keys():
+                type = self.instructions[instruction]['format']
+            else:
+                raise Exception("Cannot Assemble '" + line + "' at line number: " + str(line_num) + " (ignoring labels)")
+            if instruction == 'jr':
+                try:
+                    self.output.append(self.__jr(line))
+                except:
+                    raise Exception("Cannot Assemble '" + line +"' at line number: " + str(line_num)+ " (ignoring labels)")
+            elif type == 'I':
                 try:
                     self.output.append(self.__i_type(line, line_num))
                 except:
-                    raise Exception("Cannot Assemble '" + line +"' at line number: " + line_num)
+                    raise Exception("Cannot Assemble '" + line +"' at line number: " + str(line_num)+ " (ignoring labels)")
             else:
                 try:
                     self.output.append(self.__r_type(line, line_num))
                 except:
-                    raise Exception("Cannot Assemble '" + line + "' at line number: " + line_num)
+                    raise Exception("Cannot Assemble '" + line + "' at line number: " + str(line_num)+ " (ignoring labels)")
             line_num += 1
         return
 
+    #
+    # writes output to file
+    #
     def write_output(self):
         with open (self.outputFilename, 'w') as output_file:
             for line in self.output:
@@ -67,6 +84,10 @@ class assembler():
 
     #
     # Private functions
+    #
+
+    #
+    # Maps labels before instructions are read, Keeps track of line number for each label, removes labels from input
     #
     def __map_labels(self):
         line_num = 0
@@ -78,7 +99,11 @@ class assembler():
             line_num += 1
         return
 
+    #
+    # Parses an i-type instruction
+    #
     def __i_type(self, line='', num=0):
+        # If pointer notation used ( only 2 args)
         if len(line.split(' ')) == 3:
             instruction = line.split(' ')[0]
             rt = line.split(' ')[1].strip(',')
@@ -88,6 +113,7 @@ class assembler():
         else:
             #print (line)
             instruction = line.split(' ')[0]
+            # Check for branch instructions
             if instruction=='bne' or instruction=='beq':
                 rs = line.split(' ')[1].strip(',')
                 rt = line.split(' ')[2].strip(',')
@@ -95,13 +121,16 @@ class assembler():
                 rt = line.split(' ')[1].strip(',')
                 rs = line.split(' ')[2].strip(',')
             imm = line.split(' ')[3]
+            #calculate immediate
             if imm in self.labels.keys():
                 i = self.__calculate_branch(imm, num)
             else:
                 i = int(imm)
+        #buld instructions in binary
         bin_instr = self.instructions[instruction]['code']
         bin_instr += self.registers[rs]
         bin_instr += self.registers[rt]
+        #build immediate string (sign extend if negative)
         if i < 0:
             bin_imm = bin(i & 0xffff).split('0b')[1]
         else:
@@ -110,7 +139,7 @@ class assembler():
         return hex(int(bin_instr, 2)).split('0x')[1].zfill(8)
 
     #
-    # Take in an R-Type instruction, output hex string version
+    # Take in an R-Type instruction, output hex string
     #
     def __r_type(self, line='', num=0):
         instruction = line.split(' ')[0]
@@ -118,11 +147,13 @@ class assembler():
         rs = line.split(' ')[2].strip(',')
         rt = line.split(' ')[3]
         bin_instr = '000000'
+        #if rt is a register
         if rt in self.registers.keys():
             bin_instr += self.registers[rs]
             bin_instr += self.registers[rt]
             bin_instr += self.registers[rd]
             bin_instr += '00000'
+        #if there is a shift amount
         else:
             shamt = int(rt)
             bin_instr += '00000'
@@ -132,11 +163,22 @@ class assembler():
         bin_instr += self.instructions[instruction]['code']
         return hex(int(bin_instr, 2)).split('0x')[1].zfill(8)
 
+
+    #
+    # jr
+    #
+    def __jr(self, line=''):
+        rs = line.split(' ')[1].strip(',')
+        bin_instr = '000000' + self.registers[rs]
+        bin_instr += '000000000000000'
+        bin_instr += self.instructions['jr']['code']
+        return hex(int(bin_instr, 2)).split('0x')[1].zfill(8)
+
     #
     # Calculates branches
     #
     def __calculate_branch(self, label='', line_num=0):
-        line_num += 1;
+        line_num += 1; # PC = PC+4
         branch = self.labels[label] - line_num
         return branch if branch >= 0 else branch+1
 
@@ -162,7 +204,7 @@ class assembler():
         instructions['bne'] = {'format': 'I',
                                'code': '000101'}
         instructions['jr'] = {'format': 'R',
-                              'code': '000100'}
+                              'code': '001000'}
         instructions['lbu'] = {'format': 'I',
                                'code': '100100'}
         instructions['lhu'] = {'format': 'I',

@@ -3,8 +3,9 @@
 import sys
 from assembler import assembler
 
-
+# main function
 def main():
+    #checks for valid args
     if len(sys.argv) != 2:
         print("Error: Invalid Arguments")
     else:
